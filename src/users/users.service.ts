@@ -50,10 +50,11 @@ export class UsersService {
       this.prisma.duel.count({ where: { winnerId: userId } }),
     ]);
 
-    const totalEnergy = attempts.reduce((sum, a) => sum + a.energyEarned, 0);
-    const avgScore = attempts.length
-      ? attempts.reduce((sum, a) => sum + a.score, 0) / attempts.length
-      : 0;
+   const totalEnergy = attempts.reduce((sum: number, a: any) => sum + a.energyEarned, 0);
+
+const avgScore = attempts.length 
+  ? attempts.reduce((sum: number, a: any) => sum + a.score, 0) / attempts.length 
+  : 0;
 
     return {
       challengesCompleted: attempts.length,

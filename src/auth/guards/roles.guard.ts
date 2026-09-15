@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../../common/enums/role.enum';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 

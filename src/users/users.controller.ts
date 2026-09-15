@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../common/enums/role.enum';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 

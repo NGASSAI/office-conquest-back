@@ -149,11 +149,12 @@ export class RaidsService {
     if (!raid) return null;
 
     const attackerScore = raid.participants
-      .filter((p) => p.teamId === raid.attackerTeamId)
-      .reduce((s, p) => s + p.totalScore, 0);
+      .filter((p: { teamId: string; totalScore: number }) => p.teamId === raid.attackerTeamId)
+      .reduce((s: number, p: { totalScore: number }) => s + p.totalScore, 0);
+
     const defenderScore = raid.participants
-      .filter((p) => p.teamId === raid.defenderTeamId)
-      .reduce((s, p) => s + p.totalScore, 0);
+      .filter((p: { teamId: string; totalScore: number }) => p.teamId === raid.defenderTeamId)
+      .reduce((s: number, p: { totalScore: number }) => s + p.totalScore, 0);
 
     const result =
       attackerScore > defenderScore ? 'ATTACKER_WIN' : attackerScore < defenderScore ? 'DEFENDER_WIN' : 'DRAW';

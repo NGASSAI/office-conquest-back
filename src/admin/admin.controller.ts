@@ -1,8 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
-
+import { UserRole } from '../common/enums/role.enum';
 // Protection au niveau du contrôleur entier : chaque route exige le rôle ADMIN
 @Roles(UserRole.ADMIN)
 @Controller('admin')

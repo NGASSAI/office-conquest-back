@@ -28,7 +28,7 @@ export class AuthController {
   ) {
     const { accessToken, refreshToken } = await this.authService.register(
       dto,
-      req.ip,
+      req.ip ??'',
       req.headers['user-agent'],
     );
     res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTIONS);
@@ -46,7 +46,7 @@ export class AuthController {
   ) {
     const { accessToken, refreshToken } = await this.authService.login(
       dto,
-      req.ip,
+      req.ip ??'',
       req.headers['user-agent'],
     );
     res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTIONS);
@@ -61,7 +61,7 @@ export class AuthController {
     const refreshToken = req.cookies?.[REFRESH_COOKIE];
     const result = await this.authService.refresh(
       refreshToken,
-      req.ip,
+      req.ip ?? '',
       req.headers['user-agent'],
     );
     res.cookie(REFRESH_COOKIE, result.refreshToken, COOKIE_OPTIONS);

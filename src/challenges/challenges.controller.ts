@@ -3,8 +3,7 @@ import { ChallengesService } from './challenges.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
-
+import { UserRole } from '../common/enums/role.enum';
 @Controller('challenges')
 export class ChallengesController {
   constructor(private readonly challengesService: ChallengesService) {}
