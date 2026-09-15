@@ -1,0 +1,311 @@
+// ============================================
+// La Conquête du Bureau — Schéma Prisma
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum ChallengeType {
+  QUIZ
+  MEMORY
+  REFLEX
+  RIDDLE
+}
+
+enum RaidStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RaidResult {
+  ATTACKER_WIN
+  DEFENDER_WIN
+  DRAW
+}
+
+enum DuelStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ActivityType {
+  LOGIN
+  LOGOUT
+  REGISTER
+  TEAM_CHANGE
+  CHALLENGE_ATTEMPT
+  RAID_TRIGGERED
+  RAID_RESULT
+  DUEL_RESULT
+  USER_BLOCKED
+  USER_UNBLOCKED
+  ADMIN_ACTION
+  ERROR
+  LOGIN_FAILED
+  ACCOUNT_LOCKED
+  TOKEN_REUSE_DETECTED
+}
+
+// ============================================
+// USER & AUTH
+// ============================================
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  pseudo        String     @unique
+  passwordHash  String
+  avatar        String?
+  role          UserRole   @default(USER)
+  status        UserStatus @default(ACTIVE)
+
+  teamId        String?
+  team          Team?      @relation("TeamMembers", fields: [teamId], references: [id])
+
+  // Sécurité — verrouillage après tentatives échouées
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  createdAt     DateTime   @default(now())
+  lastLoginAt   DateTime?
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  sessions              Session[]
+  challengeAttempts     DailyChallengeAttempt[]
+  teamChangeLogs        TeamChangeLog[]
+  raidParticipations    RaidParticipant[]
+  duelsAsPlayer1         Duel[]                  @relation("DuelPlayer1")
+  duelsAsPlayer2         Duel[]                  @relation("DuelPlayer2")
+  activityLogs          ActivityLog[]
+
+  @@index([teamId])
+  @@index([status])
+  @@map("users")
+}
+
+// Refresh tokens / remember-me sessions
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  tokenFamily  String   // identifiant de la "lignée" de tokens, pour détecter le rejeu après rotation
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  revokedAt    DateTime?
+  replacedBy   String?  // id du session/token qui a remplacé celui-ci après rotation
+
+  @@index([userId])
+  @@index([tokenFamily])
+  @@map("sessions")
+}
+
+// ============================================
+// TEAMS & TERRITORIES
+// ============================================
+
+model Team {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  color           String
+  energy          Int      @default(0)
+  energyThreshold Int      @default(1000) // seuil configurable pour déclencher un raid
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  members           User[]             @relation("TeamMembers")
+  territories       Territory[]
+  teamChangeLogs    TeamChangeLog[]
+  raidsAsAttacker   Raid[]             @relation("RaidAttacker")
+  raidsAsDefender   Raid[]             @relation("RaidDefender")
+  raidParticipants  RaidParticipant[]
+
+  @@map("teams")
+}
+
+// Historique des changements d'équipe (changement libre autorisé)
+model TeamChangeLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromTeamId String?
+  toTeamId  String
+  toTeam    Team     @relation(fields: [toTeamId], references: [id])
+  changedAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("team_change_logs")
+}
+
+model Territory {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  ownerTeamId   String?
+  ownerTeam     Team?    @relation(fields: [ownerTeamId], references: [id])
+  capturedAt    DateTime?
+
+  raids         Raid[]
+
+  @@map("territories")
+}
+
+// ============================================
+// DAILY CHALLENGES (mode solo asynchrone)
+// ============================================
+
+model DailyChallenge {
+  id         String        @id @default(cuid())
+  date       DateTime      @unique @db.Date
+  type       ChallengeType
+  title      String
+  content    Json          // structure flexible selon le type (questions, séquence, etc.)
+  difficulty Int           @default(1)
+
+  createdAt  DateTime      @default(now())
+
+  attempts   DailyChallengeAttempt[]
+
+  @@map("daily_challenges")
+}
+
+model DailyChallengeAttempt {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId    String
+  challenge      DailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  score          Int
+  energyEarned   Int
+  answerData     Json?
+  completedAt    DateTime       @default(now())
+
+  @@unique([userId, challengeId]) // un seul essai par défi par jour
+  @@index([userId])
+  @@index([challengeId])
+  @@map("daily_challenge_attempts")
+}
+
+// ============================================
+// RAIDS (batailles d'équipe en temps réel)
+// ============================================
+
+model Raid {
+  id             String     @id @default(cuid())
+  attackerTeamId String
+  attackerTeam   Team       @relation("RaidAttacker", fields: [attackerTeamId], references: [id])
+  defenderTeamId String
+  defenderTeam   Team       @relation("RaidDefender", fields: [defenderTeamId], references: [id])
+  territoryId    String
+  territory      Territory  @relation(fields: [territoryId], references: [id])
+
+  status         RaidStatus @default(PENDING)
+  result         RaidResult?
+
+  triggeredAt    DateTime   @default(now()) // déclenché automatiquement (seuil d'énergie)
+  startedAt      DateTime?
+  endedAt        DateTime?
+
+  rounds         RaidRound[]
+  participants   RaidParticipant[]
+
+  @@index([status])
+  @@map("raids")
+}
+
+model RaidParticipant {
+  id       String @id @default(cuid())
+  raidId   String
+  raid     Raid   @relation(fields: [raidId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId   String
+  team     Team   @relation(fields: [teamId], references: [id])
+
+  totalScore Int  @default(0)
+
+  @@unique([raidId, userId])
+  @@map("raid_participants")
+}
+
+model RaidRound {
+  id           String        @id @default(cuid())
+  raidId       String
+  raid         Raid          @relation(fields: [raidId], references: [id], onDelete: Cascade)
+  roundNumber  Int
+  type         ChallengeType
+  resultsData  Json          // scores par joueur pour cette manche
+
+  startedAt    DateTime      @default(now())
+  endedAt      DateTime?
+
+  @@index([raidId])
+  @@map("raid_rounds")
+}
+
+// ============================================
+// DUELS (1v1 rapide)
+// ============================================
+
+model Duel {
+  id          String        @id @default(cuid())
+  player1Id   String
+  player1     User          @relation("DuelPlayer1", fields: [player1Id], references: [id])
+  player2Id   String
+  player2     User          @relation("DuelPlayer2", fields: [player2Id], references: [id])
+  type        ChallengeType
+  status      DuelStatus    @default(PENDING)
+  winnerId    String?
+  scores      Json?         // { [userId]: score } — rempli au fur et à mesure que chaque joueur joue
+
+  createdAt   DateTime      @default(now())
+  completedAt DateTime?
+
+  @@index([player1Id])
+  @@index([player2Id])
+  @@map("duels")
+}
+
+// ============================================
+// MONITORING / ADMIN
+// ============================================
+
+model ActivityLog {
+  id        String       @id @default(cuid())
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type      ActivityType
+  metadata  Json?        // détails contextuels (ex: IP, erreur, action ciblée)
+  createdAt DateTime     @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
