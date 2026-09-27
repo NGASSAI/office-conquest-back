@@ -28,6 +28,13 @@ export class UsersController {
     return this.usersService.getPerformance(user.userId);
   }
 
+  // Liste minimale des collègues actifs, pour choisir un adversaire de duel —
+  // volontairement limitée (pas d'email, pas de statistiques) pour ne pas exposer de données inutiles
+  @Get('directory')
+  getDirectory(@CurrentUser() user: { userId: string }) {
+    return this.usersService.getDirectory(user.userId);
+  }
+
   @Patch('me/secret-phrase')
   setSecretPhrase(@CurrentUser() user: { userId: string }, @Body() dto: SetSecretPhraseDto) {
     return this.usersService.setSecretPhrase(user.userId, dto.secretPhrase);

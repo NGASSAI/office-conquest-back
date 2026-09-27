@@ -121,4 +121,12 @@ const avgScore = attempts.length
     await this.monitoring.logAndBroadcast('SECRET_PHRASE_SET', userId, {});
     return { success: true };
   }
+    async getDirectory(excludeUserId: string) {
+    return this.prisma.user.findMany({
+      where: { id: { not: excludeUserId }, status: 'ACTIVE' },
+      select: { id: true, pseudo: true, teamId: true },
+      orderBy: { pseudo: 'asc' },
+      take: 100,
+    });
+  }
 }
