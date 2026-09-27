@@ -299,10 +299,12 @@ model Duel {
   player1     User          @relation("DuelPlayer1", fields: [player1Id], references: [id])
   player2Id   String
   player2     User          @relation("DuelPlayer2", fields: [player2Id], references: [id])
-  type        ChallengeType
-  status      DuelStatus    @default(PENDING)
-  winnerId    String?
-  scores      Json?         // { [userId]: score } — rempli au fur et à mesure que chaque joueur joue
+   type          ChallengeType
+  status        DuelStatus    @default(PENDING)
+  winnerId      String?
+  scores        Json?         // { [userId]: score } — rempli au fur et à mesure que chaque joueur joue
+  content       Json?         // question/séquence + bonne réponse — générée à la création, jamais envoyée telle quelle
+  playerReadyAt Json?         // { [userId]: timestamp serveur } — sert à chronométrer le REFLEX sans faire confiance au client         // { [userId]: score } — rempli au fur et à mesure que chaque joueur joue
 
   createdAt   DateTime      @default(now())
   completedAt DateTime?

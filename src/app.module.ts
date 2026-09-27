@@ -12,8 +12,9 @@ import { ChallengesModule } from './challenges/challenges.module';
 import { RaidsModule } from './raids/raids.module';
 import { DuelsModule } from './duels/duels.module';
 import { AdminModule } from './admin/admin.module';
-import { MonitoringModule } from './monitoring/monitoring.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { HealthModule } from './health/health.module';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
@@ -29,8 +30,9 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
     ChallengesModule,
     RaidsModule,
     DuelsModule,
-    AdminModule,
+      AdminModule,
     MonitoringModule,
+    HealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },  // anti brute-force / DoS global

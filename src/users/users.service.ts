@@ -1,9 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { AuthService } from '../auth/auth.service';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 @Injectable()
 export class UsersService {
@@ -98,8 +98,15 @@ const avgScore = attempts.length
 
     return { users, total, page, pageSize };
   }
-
   async setStatus(userId: string, status: 'ACTIVE' | 'BLOCKED', adminId: string) {
+    if (userId === adminId) {
+      throw new BadRequestException('Tu ne peux pas te bloquer toi-même');
+    }
+    const target = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (target?.role === 'ADMIN') {
+      throw new ForbiddenException('Un admin ne peut pas bloquer un autre admin');
+    }
+
     const user = await this.prisma.user.update({ where: { id: userId }, data: { status } });
 
     // Si on bloque un utilisateur, on révoque immédiatement toutes ses sessions actives

@@ -9,10 +9,11 @@ import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';
 import { Public } from '../common/decorators/public.decorator';
 
 const REFRESH_COOKIE = 'refresh_token';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: true,
-  sameSite: 'none' as const,
+  secure: IS_PRODUCTION, // HTTPS obligatoire en prod (Render/Vercel) ; désactivé en local pour que le cookie s'enregistre sur http://localhost
+  sameSite: (IS_PRODUCTION ? 'none' : 'lax') as 'none' | 'lax', // 'lax' suffit en local (même "site" malgré les ports différents)
   path: '/',
 };
 
