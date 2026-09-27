@@ -18,7 +18,7 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:3000',
     frontendUrl,
-  ].filter(Boolean);
+  ].filter((origin): origin is string => Boolean(origin));
 
   app.enableCors({
     origin: allowedOrigins,
