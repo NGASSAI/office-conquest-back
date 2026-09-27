@@ -19,7 +19,7 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({ namespace: 'raids', cors: true })
 export class RaidsGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
   private readonly logger = new Logger('RaidsGateway');
 
   constructor(
@@ -28,12 +28,10 @@ export class RaidsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly raidsService: RaidsService,
   ) {}
 
-  // Authentification obligatoire à la connexion — le socket transporte le même access token que l'API REST
   handleConnection(client: AuthenticatedSocket) {
     try {
       const token = client.handshake.auth?.token as string;
       if (!token) throw new Error('Token manquant');
-
       const payload = this.jwt.verify(token, { secret: this.config.get('JWT_ACCESS_SECRET') });
       client.data.userId = payload.sub;
     } catch {
@@ -43,7 +41,7 @@ export class RaidsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: AuthenticatedSocket) {
-    // no-op pour l'instant — utile pour un futur "joueur déconnecté" dans le raid
+    // no-op — utile plus tard pour un statut "joueur déconnecté"
   }
 
   @SubscribeMessage('joinRaidRoom')
@@ -51,30 +49,39 @@ export class RaidsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { raidId: string },
   ) {
-    // La légitimité (appartenance à l'équipe) est revalidée côté service, pas seulement côté socket
     const raid = await this.raidsService.joinRaid(data.raidId, client.data.userId);
     client.join(`raid:${data.raidId}`);
     this.server.to(`raid:${data.raidId}`).emit('raidUpdate', raid);
     return raid;
   }
 
-  @SubscribeMessage('submitRoundScore')
-  async onSubmitScore(
+  @SubscribeMessage('submitRoundAnswer')
+  async onSubmitAnswer(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { raidId: string; roundId: string; score: number },
+    @MessageBody() data: { raidId: string; roundId: string; answerData: Record<string, unknown> },
   ) {
-    if (data.score < 0 || data.score > 100) return; // borne défensive côté gateway aussi
-    const results = await this.raidsService.submitRoundScore(
+    const result = await this.raidsService.submitRoundAnswer(
       data.raidId,
       data.roundId,
       client.data.userId,
-      data.score,
+      data.answerData,
     );
-    this.server.to(`raid:${data.raidId}`).emit('roundUpdate', results);
-  }
 
-  // Émission serveur→client quand une manche/raid se termine (appelée par RaidsService si besoin)
-  broadcastRaidEnded(raidId: string, result: unknown) {
-    this.server.to(`raid:${raidId}`).emit('raidEnded', result);
+    this.server.to(`raid:${data.raidId}`).emit('roundUpdate', {
+      roundId: data.roundId,
+      resultsData: result.resultsData,
+    });
+
+    if (result.roundEnded) {
+      // Petite pause pour laisser les joueurs voir le résultat de la manche avant d'enchaîner
+      const freshRaid = await this.raidsService.getRaidDetail(data.raidId, client.data.userId);
+      this.server.to(`raid:${data.raidId}`).emit('raidUpdate', freshRaid);
+
+      if (result.raidResult) {
+        this.server.to(`raid:${data.raidId}`).emit('raidEnded', result.raidResult);
+      }
+    }
+
+    return result;
   }
 }

@@ -279,6 +279,7 @@ model RaidRound {
   raid         Raid          @relation(fields: [raidId], references: [id], onDelete: Cascade)
   roundNumber  Int
   type         ChallengeType
+  content      Json          // question/séquence + bonne réponse — jamais envoyé tel quel au client
   resultsData  Json          // scores par joueur pour cette manche
 
   startedAt    DateTime      @default(now())

@@ -3,6 +3,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 
 const ROUND_TYPES = ['QUIZ', 'REFLEX', 'MEMORY'] as const;
+const MEMORY_SEQUENCE_LENGTH = 5;
+const MEMORY_COLORS = ['red', 'blue', 'green', 'yellow'] as const;
+
+// Banque de questions — stockée côté serveur uniquement, jamais envoyée avec la réponse au client
+const QUIZ_BANK = [
+  { question: 'Combien de territoires compte la carte du bureau ?', options: ['3', '5', '8', '10'], correctAnswer: '5' },
+  { question: 'Quel est le seuil d\'énergie par défaut pour déclencher un raid ?', options: ['500', '1000', '2000', '5000'], correctAnswer: '1000' },
+  { question: 'Combien de manches compte un raid ?', options: ['1', '2', '3', '5'], correctAnswer: '3' },
+];
 
 @Injectable()
 export class RaidsService {
@@ -16,14 +25,12 @@ export class RaidsService {
     const attackerTeam = await this.prisma.team.findUnique({ where: { id: attackerTeamId } });
     if (!attackerTeam || attackerTeam.energy < attackerTeam.energyThreshold) return null;
 
-    // Cible : un territoire qui n'appartient pas déjà à l'équipe attaquante
     const target = await this.prisma.territory.findFirst({
       where: { ownerTeamId: { not: attackerTeamId } },
-      orderBy: { capturedAt: 'asc' }, // priorité aux territoires détenus depuis le plus longtemps
+      orderBy: { capturedAt: 'asc' },
     });
     if (!target || !target.ownerTeamId) return null;
 
-    // Évite les doublons : pas de nouveau raid si un raid est déjà en cours sur ce territoire
     const ongoing = await this.prisma.raid.findFirst({
       where: { territoryId: target.id, status: { in: ['PENDING', 'IN_PROGRESS'] } },
     });
@@ -38,7 +45,6 @@ export class RaidsService {
       },
     });
 
-    // Consomme l'énergie utilisée pour déclencher le raid
     await this.prisma.team.update({
       where: { id: attackerTeamId },
       data: { energy: { decrement: attackerTeam.energyThreshold } },
@@ -67,6 +73,34 @@ export class RaidsService {
     });
   }
 
+  // Détail complet d'un raid pour l'affichage — le contenu de la manche en cours est toujours filtré
+  async getRaidDetail(raidId: string, userId: string) {
+    const raid = await this.prisma.raid.findUnique({
+      where: { id: raidId },
+      include: {
+        territory: true,
+        attackerTeam: true,
+        defenderTeam: true,
+        participants: { include: { user: { select: { id: true, pseudo: true } } } },
+        rounds: { orderBy: { roundNumber: 'asc' } },
+      },
+    });
+    if (!raid) throw new NotFoundException('Raid introuvable');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.teamId || ![raid.attackerTeamId, raid.defenderTeamId].includes(user.teamId)) {
+      throw new ForbiddenException("Tu ne fais pas partie d'une équipe impliquée dans ce raid");
+    }
+
+    return {
+      ...raid,
+      rounds: raid.rounds.map((r) => ({
+        ...r,
+        content: this.stripAnswer(r.content, r.type),
+      })),
+    };
+  }
+
   // Un membre d'une des deux équipes rejoint le raid
   async joinRaid(raidId: string, userId: string) {
     const raid = await this.prisma.raid.findUnique({ where: { id: raidId } });
@@ -76,7 +110,6 @@ export class RaidsService {
     if (!user?.teamId || ![raid.attackerTeamId, raid.defenderTeamId].includes(user.teamId)) {
       throw new ForbiddenException("Tu ne fais pas partie d'une équipe impliquée dans ce raid");
     }
-
     if (raid.status === 'COMPLETED' || raid.status === 'CANCELLED') {
       throw new BadRequestException('Ce raid est terminé');
     }
@@ -95,48 +128,112 @@ export class RaidsService {
       await this.startRound(raidId, 1);
     }
 
-    return this.prisma.raid.findUnique({
-      where: { id: raidId },
-      include: { participants: true, rounds: true },
-    });
+    return this.getRaidDetail(raidId, userId);
+  }
+
+  private generateRoundContent(type: (typeof ROUND_TYPES)[number]) {
+    if (type === 'QUIZ') {
+      return QUIZ_BANK[Math.floor(Math.random() * QUIZ_BANK.length)];
+    }
+    if (type === 'MEMORY') {
+      const correctSequence = Array.from(
+        { length: MEMORY_SEQUENCE_LENGTH },
+        () => MEMORY_COLORS[Math.floor(Math.random() * MEMORY_COLORS.length)],
+      );
+      return { correctSequence };
+    }
+    // REFLEX n'a pas besoin de contenu — le score vient uniquement du temps de réaction mesuré serveur
+    return {};
+  }
+
+  // Retire la bonne réponse avant tout envoi au client
+  private stripAnswer(content: any, type: string) {
+    const { correctAnswer, correctSequence, ...rest } = content ?? {};
+    return rest;
   }
 
   private async startRound(raidId: string, roundNumber: number) {
     const type = ROUND_TYPES[(roundNumber - 1) % ROUND_TYPES.length];
+    const content = this.generateRoundContent(type);
     return this.prisma.raidRound.create({
-      data: { raidId, roundNumber, type, resultsData: {} },
+      data: { raidId, roundNumber, type, content, resultsData: {} },
     });
   }
 
-  // Enregistre le score d'un joueur pour la manche en cours (validé côté serveur, borné par le DTO)
-  async submitRoundScore(raidId: string, roundId: string, userId: string, score: number) {
+  // Calcule et enregistre le score d'un joueur pour la manche en cours — correction 100% serveur
+  async submitRoundAnswer(
+    raidId: string,
+    roundId: string,
+    userId: string,
+    answerData: Record<string, unknown>,
+  ) {
     const round = await this.prisma.raidRound.findUnique({ where: { id: roundId } });
     if (!round || round.raidId !== raidId) throw new NotFoundException('Manche introuvable');
     if (round.endedAt) throw new BadRequestException('Manche déjà terminée');
 
     const resultsData = (round.resultsData as Record<string, number>) ?? {};
+    if (resultsData[userId] !== undefined) {
+      throw new BadRequestException('Tu as déjà répondu à cette manche');
+    }
+
+    const score = this.computeRoundScore(round, answerData);
     resultsData[userId] = score;
 
-    await this.prisma.raidRound.update({
-      where: { id: roundId },
-      data: { resultsData },
-    });
-
+    await this.prisma.raidRound.update({ where: { id: roundId }, data: { resultsData } });
     await this.prisma.raidParticipant.updateMany({
       where: { raidId, userId },
       data: { totalScore: { increment: score } },
     });
 
-    return resultsData;
+    // Clôture automatique de la manche si tous les participants inscrits ont répondu
+    const participants = await this.prisma.raidParticipant.findMany({ where: { raidId } });
+    const allAnswered = participants.every((p) => resultsData[p.userId] !== undefined);
+
+    let roundEnded = false;
+    let raidResult: Awaited<ReturnType<RaidsService['finalizeRaid']>> = null;
+    if (allAnswered) {
+      roundEnded = true;
+      raidResult = await this.endRound(raidId, roundId, round.roundNumber);
+    }
+
+    return { score, resultsData, roundEnded, raidResult };
   }
 
-  // Clôture une manche ; si c'était la 3e, calcule le résultat final du raid
-  async endRound(raidId: string, roundId: string) {
+  private computeRoundScore(round: { type: string; content: any; startedAt: Date }, answerData: Record<string, unknown>): number {
+    const content = round.content as any;
+
+    if (round.type === 'QUIZ') {
+      return answerData.selectedOption === content.correctAnswer ? 100 : 0;
+    }
+
+    if (round.type === 'MEMORY') {
+      const submitted = Array.isArray(answerData.sequence) ? (answerData.sequence as string[]) : [];
+      const correct = content.correctSequence as string[];
+      let matchedPrefix = 0;
+      for (let i = 0; i < correct.length; i++) {
+        if (submitted[i] === correct[i]) matchedPrefix++;
+        else break;
+      }
+      return Math.round((matchedPrefix / correct.length) * 100);
+    }
+
+    if (round.type === 'REFLEX') {
+      // Le temps de réaction est calculé UNIQUEMENT à partir de l'horloge serveur —
+      // l'instant de démarrage (round.startedAt) et l'instant de réception de cette requête.
+      // Le client ne peut donc pas déclarer un temps de réaction inventé.
+      const elapsedSeconds = (Date.now() - round.startedAt.getTime()) / 1000;
+      return Math.max(0, Math.round(100 - elapsedSeconds * 20));
+    }
+
+    return 0;
+  }
+
+  private async endRound(raidId: string, roundId: string, roundNumber: number) {
     await this.prisma.raidRound.update({ where: { id: roundId }, data: { endedAt: new Date() } });
 
-    const round = await this.prisma.raidRound.findUnique({ where: { id: roundId } });
-    if (round && round.roundNumber < 3) {
-      return this.startRound(raidId, round.roundNumber + 1);
+    if (roundNumber < 3) {
+      await this.startRound(raidId, roundNumber + 1);
+      return null;
     }
     return this.finalizeRaid(raidId);
   }
@@ -149,12 +246,11 @@ export class RaidsService {
     if (!raid) return null;
 
     const attackerScore = raid.participants
-      .filter((p: { teamId: string; totalScore: number }) => p.teamId === raid.attackerTeamId)
-      .reduce((s: number, p: { totalScore: number }) => s + p.totalScore, 0);
-
+      .filter((p) => p.teamId === raid.attackerTeamId)
+      .reduce((s, p) => s + p.totalScore, 0);
     const defenderScore = raid.participants
-      .filter((p: { teamId: string; totalScore: number }) => p.teamId === raid.defenderTeamId)
-      .reduce((s: number, p: { totalScore: number }) => s + p.totalScore, 0);
+      .filter((p) => p.teamId === raid.defenderTeamId)
+      .reduce((s, p) => s + p.totalScore, 0);
 
     const result =
       attackerScore > defenderScore ? 'ATTACKER_WIN' : attackerScore < defenderScore ? 'DEFENDER_WIN' : 'DRAW';
