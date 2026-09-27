@@ -39,9 +39,11 @@ export class ChallengesService {
     };
   }
 
-  // Retire la/les bonnes réponses du contenu envoyé au client — la correction se fait uniquement côté serveur
+   // Ne retire QUE ce qui doit rester secret. QUIZ/RIDDLE : la réponse ne doit jamais être visible.
+  // MEMORY : la séquence EST le contenu à afficher (mémoriser puis reproduire), pas un secret à cacher.
   private stripAnswer(content: any, type: string) {
-    const { correctAnswer, correctSequence, ...rest } = content ?? {};
+    if (type === 'MEMORY') return content ?? {};
+    const { correctAnswer, ...rest } = content ?? {};
     return rest;
   }
 
