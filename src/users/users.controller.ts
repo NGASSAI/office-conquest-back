@@ -6,7 +6,7 @@ import { UserRole } from '../common/enums/role.enum';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { SetSecretPhraseDto } from './dto/set-secret-phrase.dto';
-
+import { SetAvatarDto } from './dto/set-avatar.dto';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -28,16 +28,25 @@ export class UsersController {
     return this.usersService.getPerformance(user.userId);
   }
 
-  // Liste minimale des collègues actifs, pour choisir un adversaire de duel —
+   // Liste minimale des collègues actifs, pour choisir un adversaire de duel —
   // volontairement limitée (pas d'email, pas de statistiques) pour ne pas exposer de données inutiles
   @Get('directory')
   getDirectory(@CurrentUser() user: { userId: string }) {
     return this.usersService.getDirectory(user.userId);
   }
 
+  @Get('leaderboard')
+  getLeaderboard() {
+    return this.usersService.getLeaderboard();
+  }
+
   @Patch('me/secret-phrase')
   setSecretPhrase(@CurrentUser() user: { userId: string }, @Body() dto: SetSecretPhraseDto) {
     return this.usersService.setSecretPhrase(user.userId, dto.secretPhrase);
+  }
+    @Patch('me/avatar')
+  setAvatar(@CurrentUser() user: { userId: string }, @Body() dto: SetAvatarDto) {
+    return this.usersService.setAvatar(user.userId, dto.emoji, dto.color);
   }
 
   // --- Routes admin ---

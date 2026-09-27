@@ -128,12 +128,60 @@ const avgScore = attempts.length
     await this.monitoring.logAndBroadcast('SECRET_PHRASE_SET', userId, {});
     return { success: true };
   }
-    async getDirectory(excludeUserId: string) {
+    async setAvatar(userId: string, emoji: string, color: string) {
+    const avatar = JSON.stringify({ emoji, color });
+    return this.prisma.user.update({ where: { id: userId }, data: { avatar }, select: { avatar: true } });
+  }
+     async getDirectory(excludeUserId: string) {
     return this.prisma.user.findMany({
       where: { id: { not: excludeUserId }, status: 'ACTIVE' },
       select: { id: true, pseudo: true, teamId: true },
       orderBy: { pseudo: 'asc' },
       take: 100,
     });
+  }
+
+  // Classement individuel basé sur l'énergie totale apportée aux défis quotidiens
+  async getLeaderboard() {
+    const grouped = await this.prisma.dailyChallengeAttempt.groupBy({
+      by: ['userId'],
+      _sum: { energyEarned: true },
+      _count: { _all: true },
+      orderBy: { _sum: { energyEarned: 'desc' } },
+      take: 20,
+    });
+
+    if (grouped.length === 0) return [];
+
+    const userIds = grouped.map((g) => g.userId);
+    const [users, duelWins] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: userIds }, status: 'ACTIVE' },
+        select: { id: true, pseudo: true, avatar: true, team: { select: { name: true, color: true } } },
+      }),
+      this.prisma.duel.groupBy({
+        by: ['winnerId'],
+        where: { winnerId: { in: userIds } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const duelWinsByUser = new Map(duelWins.map((d) => [d.winnerId, d._count._all]));
+    const usersById = new Map(users.map((u) => [u.id, u]));
+
+    return grouped
+      .filter((g) => usersById.has(g.userId)) // exclut les comptes bloqués depuis, sans casser le classement
+      .map((g) => {
+        const user = usersById.get(g.userId)!;
+        return {
+          userId: user.id,
+          pseudo: user.pseudo,
+          avatar: user.avatar,
+          team: user.team,
+          totalEnergyContributed: g._sum.energyEarned ?? 0,
+          challengesCompleted: g._count._all,
+          duelsWon: duelWinsByUser.get(g.userId) ?? 0,
+        };
+      });
   }
 }
