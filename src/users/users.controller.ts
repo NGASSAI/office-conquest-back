@@ -3,8 +3,9 @@ import { UsersService } from './users.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/role.enum';
-import { UpdateTeamDto } from './dto/update-team.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { UpdateTeamDto } from './dto/update-team.dto';
+import { SetSecretPhraseDto } from './dto/set-secret-phrase.dto';
 
 @Controller('users')
 export class UsersController {
@@ -22,9 +23,14 @@ export class UsersController {
     return this.usersService.changeTeam(user.userId, dto.teamId);
   }
 
-  @Get('me/performance')
+    @Get('me/performance')
   getMyPerformance(@CurrentUser() user: { userId: string }) {
     return this.usersService.getPerformance(user.userId);
+  }
+
+  @Patch('me/secret-phrase')
+  setSecretPhrase(@CurrentUser() user: { userId: string }, @Body() dto: SetSecretPhraseDto) {
+    return this.usersService.setSecretPhrase(user.userId, dto.secretPhrase);
   }
 
   // --- Routes admin ---

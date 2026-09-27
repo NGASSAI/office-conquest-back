@@ -67,6 +67,8 @@ enum ActivityType {
   LOGIN_FAILED
   ACCOUNT_LOCKED
   TOKEN_REUSE_DETECTED
+   PASSWORD_RESET
+   SECRET_PHRASE_SET
 }
 
 // ============================================
@@ -85,9 +87,11 @@ model User {
   teamId        String?
   team          Team?      @relation("TeamMembers", fields: [teamId], references: [id])
 
-  // Sécurité — verrouillage après tentatives échouées
+    // Sécurité — verrouillage après tentatives échouées (login ET réinitialisation de mot de passe)
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
+  secretPhraseHash    String?    // phrase secrète hachée (bcrypt), définie à l'inscription — sert à réinitialiser le mot de passe
+ 
 
   createdAt     DateTime   @default(now())
   lastLoginAt   DateTime?
@@ -95,6 +99,7 @@ model User {
 
   // Relations
   sessions              Session[]
+  passwordResetTokens   PasswordResetToken[]
   challengeAttempts     DailyChallengeAttempt[]
   teamChangeLogs        TeamChangeLog[]
   raidParticipations    RaidParticipant[]
@@ -124,6 +129,19 @@ model Session {
   @@index([userId])
   @@index([tokenFamily])
   @@map("sessions")
+}
+// Token de réinitialisation de mot de passe — à usage unique, jamais stocké en clair
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique // SHA-256 du token — le token brut n'est jamais persisté
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // ============================================

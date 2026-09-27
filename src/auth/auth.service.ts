@@ -7,7 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { RegisterDto } from './dto/register.dto';
@@ -16,6 +16,7 @@ import { LoginDto } from './dto/login.dto';
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 15;
 const BCRYPT_ROUNDS = 12;
+const RESET_TOKEN_EXPIRATION_MINUTES = 15;
 
 @Injectable()
 export class AuthService {
@@ -190,11 +191,88 @@ export class AuthService {
     });
   }
 
-  // Révoque toutes les sessions d'un utilisateur (ex: après blocage admin, ou changement de mot de passe)
+  // Révoque toutes les sessions d'un utilisateur (ex: après blocage admin, réinitialisation de mot de passe)
   async revokeAllSessions(userId: string) {
     await this.prisma.session.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  // --- Réinitialisation de mot de passe par phrase secrète ---
+
+  // Étape unique de vérification (email + phrase secrète ensemble) — jamais de confirmation
+  // séparée sur l'existence de l'email, pour ne rien laisser deviner à un collègue.
+  async verifySecretPhraseAndIssueResetToken(email: string, secretPhrase: string, ip: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    const genericError = new UnauthorizedException('Email ou phrase secrète incorrects');
+
+    if (!user || !user.secretPhraseHash) {
+      // Compte inexistant OU phrase jamais configurée — même erreur dans les deux cas
+      throw genericError;
+    }
+
+    if (user.status === 'BLOCKED') throw new ForbiddenException('Compte bloqué');
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      throw new ForbiddenException(
+        'Compte temporairement verrouillé suite à plusieurs échecs. Réessaie plus tard.',
+      );
+    }
+
+    const valid = await bcrypt.compare(secretPhrase, user.secretPhraseHash);
+    if (!valid) {
+      // Même compteur de verrouillage que le login — une seule ressource à protéger par compte
+      await this.registerFailedAttempt(user.id, user.failedLoginAttempts, ip);
+      throw genericError;
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    // Token à usage unique — seul le hash SHA-256 est persisté, jamais le token brut
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRATION_MINUTES * 60 * 1000);
+
+    await this.prisma.passwordResetToken.create({
+      data: { userId: user.id, tokenHash, expiresAt },
+    });
+
+    await this.monitoring.logAndBroadcast('PASSWORD_RESET', user.id, { ip, step: 'token_issued' });
+
+    return { resetToken: rawToken, expiresInMinutes: RESET_TOKEN_EXPIRATION_MINUTES };
+  }
+
+  async confirmPasswordReset(token: string, newPassword: string, ip: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const resetToken = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+
+    const genericError = new UnauthorizedException('Lien de réinitialisation invalide ou expiré');
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      throw genericError;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+      this.prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    // Coupe toutes les sessions actives — si le compte a été compromis, on ferme tout
+    await this.revokeAllSessions(resetToken.userId);
+
+    await this.monitoring.logAndBroadcast('PASSWORD_RESET', resetToken.userId, {
+      ip,
+      step: 'completed',
+    });
+
+    return { success: true };
   }
 }

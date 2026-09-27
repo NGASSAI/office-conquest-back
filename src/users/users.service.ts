@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { AuthService } from '../auth/auth.service';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
@@ -12,17 +13,21 @@ export class UsersService {
     private readonly authService: AuthService,
   ) {}
 
-  async getProfile(userId: string) {
+   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true, email: true, pseudo: true, avatar: true, role: true,
         status: true, teamId: true, team: true, createdAt: true, lastLoginAt: true,
+        secretPhraseHash: true,
         // passwordHash volontairement exclu
       },
     });
     if (!user) throw new NotFoundException('Utilisateur introuvable');
-    return user;
+
+    // On ne renvoie jamais le hash lui-même au client — juste s'il existe
+    const { secretPhraseHash, ...rest } = user;
+    return { ...rest, hasSecretPhrase: !!secretPhraseHash };
   }
 
   async changeTeam(userId: string, teamId: string) {
@@ -108,5 +113,12 @@ const avgScore = attempts.length
       { targetUserId: userId },
     );
     return user;
+  }
+    // Phrase secrète — configurée dans le profil, sert uniquement à la réinitialisation de mot de passe
+  async setSecretPhrase(userId: string, secretPhrase: string) {
+    const secretPhraseHash = await bcrypt.hash(secretPhrase, 12);
+    await this.prisma.user.update({ where: { id: userId }, data: { secretPhraseHash } });
+    await this.monitoring.logAndBroadcast('SECRET_PHRASE_SET', userId, {});
+    return { success: true };
   }
 }

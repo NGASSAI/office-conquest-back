@@ -4,6 +4,8 @@ import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { VerifySecretPhraseDto } from './dto/verify-secret-phrase.dto';
+import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';
 import { Public } from '../common/decorators/public.decorator';
 
 const REFRESH_COOKIE = 'refresh_token';
@@ -28,7 +30,7 @@ export class AuthController {
   ) {
     const { accessToken, refreshToken } = await this.authService.register(
       dto,
-      req.ip ??'',
+      req.ip ?? '',
       req.headers['user-agent'],
     );
     res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTIONS);
@@ -46,7 +48,7 @@ export class AuthController {
   ) {
     const { accessToken, refreshToken } = await this.authService.login(
       dto,
-      req.ip ??'',
+      req.ip ?? '',
       req.headers['user-agent'],
     );
     res.cookie(REFRESH_COOKIE, refreshToken, COOKIE_OPTIONS);
@@ -75,5 +77,27 @@ export class AuthController {
     if (refreshToken) await this.authService.logout(refreshToken);
     res.clearCookie(REFRESH_COOKIE, COOKIE_OPTIONS);
     return { success: true };
+  }
+
+  // Étape 1 (email) + étape 2 (phrase secrète) de l'UI sont regroupées ici en un seul appel
+  // atomique côté serveur — aucune confirmation séparée sur l'existence de l'email.
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('password-reset/verify')
+  async verifySecretPhrase(@Body() dto: VerifySecretPhraseDto, @Req() req: Request) {
+    return this.authService.verifySecretPhraseAndIssueResetToken(
+      dto.email,
+      dto.secretPhrase,
+      req.ip ?? '',
+    );
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('password-reset/confirm')
+  async confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto, @Req() req: Request) {
+    return this.authService.confirmPasswordReset(dto.token, dto.newPassword, req.ip ?? '');
   }
 }
