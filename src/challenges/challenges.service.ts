@@ -4,7 +4,7 @@ import { TeamsService } from '../teams/teams.service';
 import { RaidsService } from '../raids/raids.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
-
+import { CreateChallengeDto } from './dto/create-challenge.dto';
 @Injectable()
 export class ChallengesService {
   constructor(
@@ -124,7 +124,49 @@ export class ChallengesService {
     return Math.min(100, 50 + speedBonus);
   }
 
-  async create(dto: any) {
-    return this.prisma.dailyChallenge.create({ data: dto });
+    async create(dto: CreateChallengeDto) {
+    this.validateContentShape(dto.type, dto.content);
+
+    const date = new Date(dto.date);
+    date.setHours(0, 0, 0, 0);
+
+    const existing = await this.prisma.dailyChallenge.findUnique({ where: { date } });
+    if (existing) {
+      throw new ConflictException('Un défi existe déjà pour cette date');
+    }
+
+    return this.prisma.dailyChallenge.create({
+      data: { date, type: dto.type, title: dto.title, content: dto.content as import('@prisma/client').Prisma.InputJsonValue, difficulty: dto.difficulty },
+    });
+  }
+
+  // Empêche un admin de publier par erreur un contenu incomplet (ex: QUIZ sans correctAnswer)
+  // qui rendrait le défi injouable ou impossible à corriger côté serveur.
+  private validateContentShape(type: string, content: Record<string, unknown>) {
+    if (type === 'QUIZ') {
+      if (!content.question || !Array.isArray(content.options) || !content.correctAnswer) {
+        throw new BadRequestException('QUIZ requiert : question, options (tableau), correctAnswer');
+      }
+      if (!(content.options as string[]).includes(content.correctAnswer as string)) {
+        throw new BadRequestException('correctAnswer doit être une des options proposées');
+      }
+    } else if (type === 'RIDDLE') {
+      if (!content.question || !content.correctAnswer) {
+        throw new BadRequestException('RIDDLE requiert : question, correctAnswer');
+      }
+    } else if (type === 'MEMORY') {
+      if (!Array.isArray(content.correctSequence) || content.correctSequence.length === 0) {
+        throw new BadRequestException('MEMORY requiert : correctSequence (tableau non vide)');
+      }
+    }
+    // REFLEX n'a besoin d'aucun contenu
+  }
+
+  async listAll() {
+    return this.prisma.dailyChallenge.findMany({
+      orderBy: { date: 'desc' },
+      take: 30,
+      include: { _count: { select: { attempts: true } } },
+    });
   }
 }

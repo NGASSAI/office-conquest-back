@@ -2,8 +2,10 @@ import { Body, Controller, Get, Post, Param } from '@nestjs/common';
 import { ChallengesService } from './challenges.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
+import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums/role.enum';
+
 @Controller('challenges')
 export class ChallengesController {
   constructor(private readonly challengesService: ChallengesService) {}
@@ -24,8 +26,14 @@ export class ChallengesController {
   }
 
   @Roles(UserRole.ADMIN)
+  @Get()
+  listAll() {
+    return this.challengesService.listAll();
+  }
+
+  @Roles(UserRole.ADMIN)
   @Post()
-  create(@Body() dto: any) {
+  create(@Body() dto: CreateChallengeDto) {
     return this.challengesService.create(dto);
   }
 }
