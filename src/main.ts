@@ -13,10 +13,17 @@ async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
+  // Récupération de l'URL de prod + ajout de localhost pour le dev
+  const frontendUrl = config.get<string>('FRONTEND_URL');
+  const allowedOrigins = [
+    'http://localhost:3000',
+    frontendUrl,
+  ].filter(Boolean);
+
   app.enableCors({
-    origin: config.get<string>('FRONTEND_URL'),
+    origin: allowedOrigins,
     credentials: true, // nécessaire pour le cookie httpOnly (remember me)
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   app.useGlobalPipes(
