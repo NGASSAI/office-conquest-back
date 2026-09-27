@@ -56,8 +56,14 @@ export class DuelsService {
     return this.toPublicDuel(duel);
   }
 
-  async getOne(duelId: string, userId: string) {
-    const duel = await this.prisma.duel.findUnique({ where: { id: duelId } });
+   async getOne(duelId: string, userId: string) {
+    const duel = await this.prisma.duel.findUnique({
+      where: { id: duelId },
+      include: {
+        player1: { select: { pseudo: true } },
+        player2: { select: { pseudo: true } },
+      },
+    });
     if (!duel) throw new NotFoundException('Duel introuvable');
     if (![duel.player1Id, duel.player2Id].includes(userId)) {
       throw new ForbiddenException("Tu ne fais pas partie de ce duel");
