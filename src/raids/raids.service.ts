@@ -146,12 +146,16 @@ export class RaidsService {
     return {};
   }
 
-  // Retire la bonne réponse avant tout envoi au client
+  // Ne retire QUE ce qui doit rester secret. Pour QUIZ, la bonne réponse ne doit jamais être visible.
+  // Pour MEMORY, la séquence EST le contenu à afficher au joueur (mémoriser puis reproduire) —
+  // la retirer rendrait le jeu injouable, ce n'est pas un secret de la même nature qu'une réponse de quiz.
   private stripAnswer(content: any, type: string) {
-    const { correctAnswer, correctSequence, ...rest } = content ?? {};
-    return rest;
+    if (type === 'QUIZ') {
+      const { correctAnswer, ...rest } = content ?? {};
+      return rest;
+    }
+    return content ?? {};
   }
-
   private async startRound(raidId: string, roundNumber: number) {
     const type = ROUND_TYPES[(roundNumber - 1) % ROUND_TYPES.length];
     const content = this.generateRoundContent(type);
