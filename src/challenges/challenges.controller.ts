@@ -16,6 +16,11 @@ export class ChallengesController {
     return this.challengesService.getTodayForUser(user.userId);
   }
 
+  @Get('weekly-goal')
+  getWeeklyGoal() {
+    return this.challengesService.getWeeklyGoal();
+  }
+
   @Post(':id/attempt')
   submit(
     @Param('id') id: string,

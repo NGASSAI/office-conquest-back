@@ -14,29 +14,58 @@ export class ChallengesService {
     private readonly monitoring: MonitoringService,
   ) {}
 
-  // Renvoie le défi du jour SANS la réponse correcte, + indique si l'utilisateur a déjà joué
+  async getWeeklyGoal() {
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setUTCHours(0, 0, 0, 0);
+    weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
+    const weekEnd = new Date(weekStart);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+
+    const [completed, activePlayers] = await Promise.all([
+      this.prisma.dailyChallengeAttempt.count({
+        where: { completedAt: { gte: weekStart, lt: weekEnd } },
+      }),
+      this.prisma.user.count({ where: { status: 'ACTIVE' } }),
+    ]);
+    const target = Math.max(10, activePlayers * 3);
+
+    return {
+      completed,
+      target,
+      percent: Math.min(100, Math.round((completed / target) * 100)),
+      endsAt: weekEnd.toISOString(),
+    };
+  }
+
+  // Renvoie tous les défis du jour sans réponse correcte et avec l'état de tentative du joueur
   async getTodayForUser(userId: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const challenge = await this.prisma.dailyChallenge.findUnique({ where: { date: today } });
-    if (!challenge) throw new NotFoundException("Pas de défi disponible aujourd'hui");
-
-    const attempt = await this.prisma.dailyChallengeAttempt.findUnique({
-      where: { userId_challengeId: { userId, challengeId: challenge.id } },
+    const challenges = await this.prisma.dailyChallenge.findMany({
+      where: { date: today },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      include: {
+        attempts: {
+          where: { userId },
+          select: { score: true },
+        },
+      },
     });
 
-    const publicContent = this.stripAnswer(challenge.content as any, challenge.type);
-
-    return {
-      id: challenge.id,
-      type: challenge.type,
-      title: challenge.title,
-      difficulty: challenge.difficulty,
-      content: publicContent,
-      alreadyPlayed: !!attempt,
-      previousScore: attempt?.score ?? null,
-    };
+    return challenges.map((challenge) => {
+      const attempt = challenge.attempts[0];
+      return {
+        id: challenge.id,
+        type: challenge.type,
+        title: challenge.title,
+        difficulty: challenge.difficulty,
+        content: this.stripAnswer(challenge.content as any, challenge.type),
+        alreadyPlayed: !!attempt,
+        previousScore: attempt?.score ?? null,
+      };
+    });
   }
 
    // Ne retire QUE ce qui doit rester secret. QUIZ/RIDDLE : la réponse ne doit jamais être visible.
@@ -64,33 +93,36 @@ export class ChallengesService {
     if (existing) throw new ConflictException('Défi déjà joué aujourd\'hui');
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.teamId) throw new BadRequestException('Rejoins une équipe avant de jouer');
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
 
     // Correction 100% côté serveur à partir du contenu stocké en base (jamais confiance au client)
     const score = this.computeScore(challenge, dto);
-    const energyEarned = Math.round(score * (challenge.difficulty || 1));
+    const energyEarned = user.teamId ? Math.round(score * (challenge.difficulty || 1)) : 0;
 
-    const [attempt] = await this.prisma.$transaction([
-      this.prisma.dailyChallengeAttempt.create({
+    const attempt = await this.prisma.$transaction(async (tx) => {
+      const createdAttempt = await tx.dailyChallengeAttempt.create({
         data: {
           userId, challengeId, score, energyEarned,
           answerData: dto.answerData as any,
         },
-      }),
-      this.prisma.team.update({
-        where: { id: user.teamId },
-        data: { energy: { increment: energyEarned } },
-      }),
-    ]);
+      });
+      if (user.teamId && energyEarned > 0) {
+        await tx.team.update({
+          where: { id: user.teamId },
+          data: { energy: { increment: energyEarned } },
+        });
+      }
+      return createdAttempt;
+    });
 
     await this.monitoring.logAndBroadcast('CHALLENGE_ATTEMPT', userId, {
       challengeId, score, energyEarned,
     });
 
     // Vérifie si le seuil d'énergie est atteint pour déclencher un raid automatique
-    await this.raidsService.checkAndTriggerRaid(user.teamId);
+    if (user.teamId) await this.raidsService.checkAndTriggerRaid(user.teamId);
 
-    return { score, energyEarned };
+    return { score, energyEarned, experienceEarned: 10 + Math.floor(score / 10) };
   }
 
   private computeScore(challenge: any, dto: SubmitAttemptDto): number {
@@ -129,11 +161,6 @@ export class ChallengesService {
 
     const date = new Date(dto.date);
     date.setHours(0, 0, 0, 0);
-
-    const existing = await this.prisma.dailyChallenge.findUnique({ where: { date } });
-    if (existing) {
-      throw new ConflictException('Un défi existe déjà pour cette date');
-    }
 
     return this.prisma.dailyChallenge.create({
       data: { date, type: dto.type, title: dto.title, content: dto.content as import('@prisma/client').Prisma.InputJsonValue, difficulty: dto.difficulty },

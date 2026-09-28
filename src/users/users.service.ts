@@ -30,19 +30,30 @@ export class UsersService {
     return { ...rest, hasSecretPhrase: !!secretPhraseHash };
   }
 
-  async changeTeam(userId: string, teamId: string) {
-    const team = await this.prisma.team.findUnique({ where: { id: teamId } });
-    if (!team) throw new BadRequestException('Équipe inexistante');
+  async changeTeam(userId: string, teamId: string | null) {
+    if (teamId) {
+      const team = await this.prisma.team.findUnique({ where: { id: teamId } });
+      if (!team) throw new BadRequestException('Équipe inexistante');
+    }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    if (user.teamId === teamId) return { id: user.id, teamId: user.teamId };
     const fromTeamId = user?.teamId ?? null;
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: userId }, data: { teamId } }),
-      this.prisma.teamChangeLog.create({
-        data: { userId, fromTeamId, toTeamId: teamId },
-      }),
-    ]);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const changedUser = await tx.user.update({
+        where: { id: userId },
+        data: { teamId },
+        select: { id: true, teamId: true },
+      });
+      if (teamId) {
+        await tx.teamChangeLog.create({
+          data: { userId, fromTeamId, toTeamId: teamId },
+        });
+      }
+      return changedUser;
+    });
 
     await this.monitoring.logAndBroadcast('TEAM_CHANGE', userId, { fromTeamId, toTeamId: teamId });
     return updated;
@@ -56,6 +67,19 @@ export class UsersService {
     ]);
 
    const totalEnergy = attempts.reduce((sum: number, a: any) => sum + a.energyEarned, 0);
+    const experiencePoints = attempts.reduce(
+      (sum: number, attempt: any) => sum + 10 + Math.floor(attempt.score / 10),
+      0,
+    );
+    const levelSize = 250;
+    const levelProgress = experiencePoints % levelSize;
+    const perfectChallenges = attempts.filter((attempt: any) => attempt.score === 100).length;
+    const badges = [
+      { id: 'first-challenge', title: 'Premier pas', description: 'Terminer un défi', unlocked: attempts.length >= 1 },
+      { id: 'five-challenges', title: 'Curieux', description: 'Terminer 5 défis', unlocked: attempts.length >= 5 },
+      { id: 'twenty-challenges', title: 'Persévérant', description: 'Terminer 20 défis', unlocked: attempts.length >= 20 },
+      { id: 'perfect-score', title: 'Sans faute', description: 'Obtenir un score de 100', unlocked: perfectChallenges > 0 },
+    ];
 
 const avgScore = attempts.length 
   ? attempts.reduce((sum: number, a: any) => sum + a.score, 0) / attempts.length 
@@ -64,6 +88,11 @@ const avgScore = attempts.length
     return {
       challengesCompleted: attempts.length,
       totalEnergyContributed: totalEnergy,
+      experiencePoints,
+      level: Math.floor(experiencePoints / levelSize) + 1,
+      levelProgress,
+      levelSize,
+      badges,
       averageScore: Math.round(avgScore * 100) / 100,
       raidsParticipated: raids.length,
       duelsWon,

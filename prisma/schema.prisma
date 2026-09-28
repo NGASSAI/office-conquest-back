@@ -200,7 +200,7 @@ model Territory {
 
 model DailyChallenge {
   id         String        @id @default(cuid())
-  date       DateTime      @unique @db.Date
+  date       DateTime      @db.Date
   type       ChallengeType
   title      String
   content    Json          // structure flexible selon le type (questions, séquence, etc.)
@@ -210,6 +210,7 @@ model DailyChallenge {
 
   attempts   DailyChallengeAttempt[]
 
+  @@index([date])
   @@map("daily_challenges")
 }
 

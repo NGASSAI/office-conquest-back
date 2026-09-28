@@ -20,7 +20,7 @@ export class UsersController {
   // Changement d'équipe libre (décidé par l'utilisateur)
   @Patch('me/team')
   changeTeam(@CurrentUser() user: { userId: string }, @Body() dto: UpdateTeamDto) {
-    return this.usersService.changeTeam(user.userId, dto.teamId);
+    return this.usersService.changeTeam(user.userId, dto.teamId ?? null);
   }
 
     @Get('me/performance')
