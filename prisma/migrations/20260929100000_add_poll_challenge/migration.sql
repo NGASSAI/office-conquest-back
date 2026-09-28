@@ -1,0 +1,1 @@
+ALTER TYPE "ChallengeType" ADD VALUE IF NOT EXISTS 'POLL';

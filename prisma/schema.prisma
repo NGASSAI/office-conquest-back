@@ -30,6 +30,8 @@ enum ChallengeType {
   MEMORY
   REFLEX
   RIDDLE
+  POLL
+  SPOT
 }
 
 enum RaidStatus {

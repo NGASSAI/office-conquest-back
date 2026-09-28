@@ -174,6 +174,7 @@ const avgScore = attempts.length
   async getLeaderboard() {
     const grouped = await this.prisma.dailyChallengeAttempt.groupBy({
       by: ['userId'],
+      where: { energyEarned: { gt: 0 } },
       _sum: { energyEarned: true },
       _count: { _all: true },
       orderBy: { _sum: { energyEarned: 'desc' } },

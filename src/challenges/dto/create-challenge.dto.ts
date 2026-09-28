@@ -5,11 +5,13 @@ enum ChallengeType {
   RIDDLE = 'RIDDLE',
   MEMORY = 'MEMORY',
   REFLEX = 'REFLEX',
+  POLL = 'POLL',
+  SPOT = 'SPOT',
 }
 
 export class CreateChallengeDto {
   @IsDateString()
-  date!: string; // format ISO ("2026-09-28") — un seul défi par jour (contrainte unique en base)
+  date!: string; // format ISO ("2026-09-28") — plusieurs défis peuvent partager une date
 
   @IsEnum(ChallengeType)
   type!: ChallengeType;
@@ -19,8 +21,7 @@ export class CreateChallengeDto {
   title!: string;
 
   // La forme exacte dépend du type — validée manuellement dans le service, pas ici,
-  // pour rester flexible entre QUIZ ({question, options, correctAnswer}), RIDDLE ({question, correctAnswer}),
-  // MEMORY ({correctSequence}) et REFLEX ({}).
+  // pour rester flexible entre QUIZ, POLL, RIDDLE, MEMORY et REFLEX.
   @IsObject()
   content!: Record<string, unknown>;
 

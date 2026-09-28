@@ -138,7 +138,31 @@ export class ChallengesService {
           typeof dto.answerData.answer === 'string' &&
           dto.answerData.answer.trim().toLowerCase() === String(content.correctAnswer).trim().toLowerCase();
         break;
+      case 'POLL':
+        if (!Array.isArray(content.options) || !content.options.includes(dto.answerData.selectedOption as string)) {
+          throw new BadRequestException('Choisis une option proposée dans le sondage');
+        }
+        return 0;
+      case 'SPOT':
+        correct = dto.answerData.selectedSymbol === content.oddSymbol &&
+          Array.isArray(content.symbols) && content.symbols.includes(content.oddSymbol);
+        break;
+        const { correctAnswer, oddSymbol, ...rest } = content ?? {};
       case 'MEMORY':
+        if (content.mode === 'PAIRS') {
+          const pairSymbols = Array.isArray(content.pairSymbols) ? content.pairSymbols as string[] : [];
+          const matchedSymbols = Array.isArray(dto.answerData.matchedSymbols)
+            ? dto.answerData.matchedSymbols as string[]
+            : [];
+          const uniqueMatches = new Set(matchedSymbols.filter((symbol) => pairSymbols.includes(symbol)));
+          const pairAttempts = dto.answerData.pairAttempts;
+          if (
+            pairSymbols.length < 3 || uniqueMatches.size !== pairSymbols.length ||
+            !Number.isInteger(pairAttempts) || Number(pairAttempts) < pairSymbols.length
+          ) return 0;
+
+          return Math.max(40, Math.round((pairSymbols.length / Number(pairAttempts)) * 100));
+        }
         correct = JSON.stringify(dto.answerData.sequence) === JSON.stringify(content.correctSequence);
         break;
       case 'REFLEX':
@@ -181,9 +205,42 @@ export class ChallengesService {
       if (!content.question || !content.correctAnswer) {
         throw new BadRequestException('RIDDLE requiert : question, correctAnswer');
       }
+    } else if (type === 'POLL') {
+      const options = content.options;
+      if (
+        typeof content.question !== 'string' || !content.question.trim() ||
+        !Array.isArray(options) || options.length < 2 || options.length > 4 ||
+        options.some((option) => typeof option !== 'string' || !option.trim()) ||
+        new Set(options).size !== options.length
+      ) {
+        throw new BadRequestException('POLL requiert une question et 2 à 4 choix');
+      }
+      const symbols = content.symbols;
+      const mainSymbols = Array.isArray(symbols)
+        ? [...new Set(symbols.filter((symbol) => symbol !== content.oddSymbol))]
+        : [];
+      if (
+        typeof content.question !== 'string' || !content.question.trim() ||
+        !Array.isArray(symbols) || symbols.length !== 9 ||
+        symbols.some((symbol) => typeof symbol !== 'string' || !symbol.trim()) ||
+        typeof content.oddSymbol !== 'string' ||
+        symbols.filter((symbol) => symbol === content.oddSymbol).length !== 1 ||
+        mainSymbols.length !== 1 || symbols.filter((symbol) => symbol !== content.oddSymbol).length !== 8
+      ) {
+        throw new BadRequestException('SPOT requiert une question, 9 icônes et un seul intrus');
+      }
     } else if (type === 'MEMORY') {
-      if (!Array.isArray(content.correctSequence) || content.correctSequence.length === 0) {
-        throw new BadRequestException('MEMORY requiert : correctSequence (tableau non vide)');
+      if (content.mode === 'PAIRS') {
+        const pairSymbols = content.pairSymbols;
+        if (
+          !Array.isArray(pairSymbols) || pairSymbols.length < 3 || pairSymbols.length > 8 ||
+          pairSymbols.some((symbol) => typeof symbol !== 'string' || symbol.length === 0) ||
+          new Set(pairSymbols).size !== pairSymbols.length
+        ) {
+          throw new BadRequestException('MEMORY PAIRES requiert 3 à 8 icônes différentes');
+        }
+      } else if (!Array.isArray(content.correctSequence) || content.correctSequence.length === 0) {
+        throw new BadRequestException('MEMORY requiert une séquence non vide');
       }
     }
     // REFLEX n'a besoin d'aucun contenu
