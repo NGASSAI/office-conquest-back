@@ -169,4 +169,12 @@ export class ChallengesService {
       include: { _count: { select: { attempts: true } } },
     });
   }
+
+  async remove(id: string) {
+    const challenge = await this.prisma.dailyChallenge.findUnique({ where: { id } });
+    if (!challenge) throw new NotFoundException('Défi introuvable');
+
+    await this.prisma.dailyChallenge.delete({ where: { id } });
+    return { message: 'Défi supprimé' };
+  }
 }

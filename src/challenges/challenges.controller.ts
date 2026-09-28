@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Param } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Param } from '@nestjs/common';
 import { ChallengesService } from './challenges.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
@@ -35,5 +35,11 @@ export class ChallengesController {
   @Post()
   create(@Body() dto: CreateChallengeDto) {
     return this.challengesService.create(dto);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.challengesService.remove(id);
   }
 }
