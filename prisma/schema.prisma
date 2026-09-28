@@ -249,6 +249,7 @@ model Raid {
 
   status         RaidStatus @default(PENDING)
   result         RaidResult?
+  energyCost     Int        @default(0)
 
   triggeredAt    DateTime   @default(now()) // déclenché automatiquement (seuil d'énergie)
   startedAt      DateTime?

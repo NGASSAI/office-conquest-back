@@ -72,7 +72,7 @@ export class ChallengesService {
   // MEMORY : la séquence EST le contenu à afficher (mémoriser puis reproduire), pas un secret à cacher.
   private stripAnswer(content: any, type: string) {
     if (type === 'MEMORY') return content ?? {};
-    const { correctAnswer, ...rest } = content ?? {};
+    const { correctAnswer, oddSymbol, ...rest } = content ?? {};
     return rest;
   }
 
@@ -147,7 +147,6 @@ export class ChallengesService {
         correct = dto.answerData.selectedSymbol === content.oddSymbol &&
           Array.isArray(content.symbols) && content.symbols.includes(content.oddSymbol);
         break;
-        const { correctAnswer, oddSymbol, ...rest } = content ?? {};
       case 'MEMORY':
         if (content.mode === 'PAIRS') {
           const pairSymbols = Array.isArray(content.pairSymbols) ? content.pairSymbols as string[] : [];

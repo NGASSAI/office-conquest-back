@@ -5,6 +5,7 @@ import { MonitoringService } from '../monitoring/monitoring.service';
 const ROUND_TYPES = ['QUIZ', 'REFLEX', 'MEMORY'] as const;
 const MEMORY_SEQUENCE_LENGTH = 5;
 const MEMORY_COLORS = ['red', 'blue', 'green', 'yellow'] as const;
+const PENDING_RAID_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 // Banque de questions — stockée côté serveur uniquement, jamais envoyée avec la réponse au client
 const QUIZ_BANK = [
@@ -20,8 +21,43 @@ export class RaidsService {
     private readonly monitoring: MonitoringService,
   ) {}
 
+  private async expireStalePendingRaids() {
+    const staleBefore = new Date(Date.now() - PENDING_RAID_TIMEOUT_MS);
+    const pendingRaids = await this.prisma.raid.findMany({
+      where: { status: 'PENDING', triggeredAt: { lt: staleBefore } },
+      select: { id: true, attackerTeamId: true, energyCost: true },
+    });
+
+    for (const raid of pendingRaids) {
+      const expired = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.raid.updateMany({
+          where: { id: raid.id, status: 'PENDING', triggeredAt: { lt: staleBefore } },
+          data: { status: 'CANCELLED', endedAt: new Date() },
+        });
+        if (result.count === 0) return false;
+
+        if (raid.energyCost > 0) {
+          await tx.team.update({
+            where: { id: raid.attackerTeamId },
+            data: { energy: { increment: raid.energyCost } },
+          });
+        }
+        return true;
+      });
+
+      if (expired) {
+        await this.monitoring.logAndBroadcast('RAID_RESULT', null, {
+          raidId: raid.id,
+          result: 'CANCELLED',
+          energyRefunded: raid.energyCost,
+        });
+      }
+    }
+  }
+
   // Appelé après chaque défi quotidien complété — déclenche un raid si le seuil d'énergie est atteint
   async checkAndTriggerRaid(attackerTeamId: string) {
+    await this.expireStalePendingRaids();
     const attackerTeam = await this.prisma.team.findUnique({ where: { id: attackerTeamId } });
     if (!attackerTeam || attackerTeam.energy < attackerTeam.energyThreshold) return null;
 
@@ -42,6 +78,7 @@ export class RaidsService {
         defenderTeamId: target.ownerTeamId,
         territoryId: target.id,
         status: 'PENDING',
+        energyCost: attackerTeam.energyThreshold,
       },
     });
 
@@ -64,6 +101,7 @@ export class RaidsService {
   }
 
   async getActiveRaidsForTeam(teamId: string) {
+    await this.expireStalePendingRaids();
     return this.prisma.raid.findMany({
       where: {
         status: { in: ['PENDING', 'IN_PROGRESS'] },
@@ -75,6 +113,7 @@ export class RaidsService {
 
   // Détail complet d'un raid pour l'affichage — le contenu de la manche en cours est toujours filtré
   async getRaidDetail(raidId: string, userId: string) {
+    await this.expireStalePendingRaids();
     const raid = await this.prisma.raid.findUnique({
       where: { id: raidId },
       include: {
@@ -103,6 +142,7 @@ export class RaidsService {
 
   // Un membre d'une des deux équipes rejoint le raid
   async joinRaid(raidId: string, userId: string) {
+    await this.expireStalePendingRaids();
     const raid = await this.prisma.raid.findUnique({ where: { id: raidId } });
     if (!raid) throw new NotFoundException('Raid introuvable');
 
@@ -171,6 +211,22 @@ export class RaidsService {
     userId: string,
     answerData: Record<string, unknown>,
   ) {
+    const raid = await this.prisma.raid.findUnique({
+      where: { id: raidId },
+      include: { participants: { where: { userId }, select: { teamId: true } } },
+    });
+    if (!raid) throw new NotFoundException('Raid introuvable');
+    if (raid.status !== 'IN_PROGRESS') throw new BadRequestException('Ce raid ne reçoit plus de réponses');
+
+    const participant = raid.participants[0];
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { teamId: true } });
+    if (
+      !participant || !user?.teamId || participant.teamId !== user.teamId ||
+      ![raid.attackerTeamId, raid.defenderTeamId].includes(participant.teamId)
+    ) {
+      throw new ForbiddenException('Rejoins une des équipes du raid avant de répondre');
+    }
+
     const round = await this.prisma.raidRound.findUnique({ where: { id: roundId } });
     if (!round || round.raidId !== raidId) throw new NotFoundException('Manche introuvable');
     if (round.endedAt) throw new BadRequestException('Manche déjà terminée');
