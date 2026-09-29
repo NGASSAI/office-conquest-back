@@ -4,9 +4,10 @@ import { RaidsController } from './raids.controller';
 import { RaidsService } from './raids.service';
 import { RaidsGateway } from './raids.gateway';
 import { MonitoringModule } from '../monitoring/monitoring.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [MonitoringModule, JwtModule.register({})],
+  imports: [MonitoringModule, NotificationsModule, JwtModule.register({})],
   controllers: [RaidsController],
   providers: [RaidsService, RaidsGateway],
   exports: [RaidsService],

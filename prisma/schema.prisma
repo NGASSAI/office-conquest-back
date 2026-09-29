@@ -53,6 +53,13 @@ enum DuelStatus {
   COMPLETED
 }
 
+enum UserNotificationType {
+  DUEL_INVITE
+  DUEL_RESPONSE
+  RAID_ATTACK
+  RAID_DEFENSE
+}
+
 enum ActivityType {
   LOGIN
   LOGOUT
@@ -108,6 +115,7 @@ model User {
   duelsAsPlayer1         Duel[]                  @relation("DuelPlayer1")
   duelsAsPlayer2         Duel[]                  @relation("DuelPlayer2")
   activityLogs          ActivityLog[]
+  notifications         UserNotification[]
 
   @@index([teamId])
   @@index([status])
@@ -334,4 +342,20 @@ model ActivityLog {
   @@index([type])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+model UserNotification {
+  id        String               @id @default(cuid())
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      UserNotificationType
+  title     String
+  message   String
+  targetId  String
+  createdAt DateTime             @default(now())
+  readAt    DateTime?
+
+  @@index([userId, readAt, createdAt])
+  @@index([targetId])
+  @@map("user_notifications")
 }

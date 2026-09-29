@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const QUIZ_BANK = [
   { question: 'Combien de territoires compte la carte du bureau ?', options: ['3', '5', '8', '10'], correctAnswer: '5' },
@@ -15,6 +16,7 @@ export class DuelsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monitoring: MonitoringService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private generateContent(type: 'QUIZ' | 'MEMORY' | 'REFLEX') {
@@ -42,6 +44,11 @@ export class DuelsService {
 
     const opponent = await this.prisma.user.findUnique({ where: { id: opponentId } });
     if (!opponent || opponent.status === 'BLOCKED') throw new NotFoundException('Adversaire introuvable');
+    const challenger = await this.prisma.user.findUnique({
+      where: { id: player1Id },
+      select: { pseudo: true },
+    });
+    if (!challenger) throw new NotFoundException('Utilisateur introuvable');
 
     const duel = await this.prisma.duel.create({
       data: {
@@ -52,6 +59,14 @@ export class DuelsService {
         content: this.generateContent(type),
       },
     });
+
+    await this.notifications.notifyUser(
+      opponentId,
+      'DUEL_INVITE',
+      'Nouveau duel',
+      `${challenger.pseudo} te défie en ${type === 'QUIZ' ? 'quiz' : type === 'MEMORY' ? 'Memory' : 'réflexe'}.`,
+      duel.id,
+    );
 
     return this.toPublicDuel(duel);
   }
@@ -68,6 +83,7 @@ export class DuelsService {
     if (![duel.player1Id, duel.player2Id].includes(userId)) {
       throw new ForbiddenException("Tu ne fais pas partie de ce duel");
     }
+    await this.notifications.markTargetRead(userId, duel.id);
     return this.toPublicDuel(duel);
   }
 
@@ -79,6 +95,7 @@ export class DuelsService {
     if (![duel.player1Id, duel.player2Id].includes(userId)) {
       throw new ForbiddenException("Tu ne fais pas partie de ce duel");
     }
+    await this.notifications.markTargetRead(userId, duel.id);
 
     const playerReadyAt = (duel.playerReadyAt as Record<string, number>) ?? {};
     if (playerReadyAt[userId] === undefined) {
@@ -121,6 +138,23 @@ export class DuelsService {
 
     if (bothPlayed) {
       await this.monitoring.logAndBroadcast('DUEL_RESULT', winnerId, { duelId, scores });
+      await Promise.all([
+        this.notifications.markTargetRead(duel.player1Id, duel.id),
+        this.notifications.markTargetRead(duel.player2Id, duel.id),
+      ]);
+    } else {
+      const opponentId = userId === duel.player1Id ? duel.player2Id : duel.player1Id;
+      const responder = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { pseudo: true },
+      });
+      await this.notifications.notifyUser(
+        opponentId,
+        'DUEL_RESPONSE',
+        'Ton duel avance',
+        `${responder?.pseudo ?? 'Ton adversaire'} a joué son duel. À toi de répondre.`,
+        duelId,
+      );
     }
 
     return { ...this.toPublicDuel(updated), myScore: scores[userId], bothPlayed };

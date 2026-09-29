@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MonitoringService } from '../monitoring/monitoring.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ROUND_TYPES = ['QUIZ', 'REFLEX', 'MEMORY'] as const;
 const MEMORY_SEQUENCE_LENGTH = 5;
@@ -19,13 +20,14 @@ export class RaidsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monitoring: MonitoringService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async expireStalePendingRaids() {
     const staleBefore = new Date(Date.now() - PENDING_RAID_TIMEOUT_MS);
     const pendingRaids = await this.prisma.raid.findMany({
       where: { status: 'PENDING', triggeredAt: { lt: staleBefore } },
-      select: { id: true, attackerTeamId: true, energyCost: true },
+      select: { id: true, attackerTeamId: true, defenderTeamId: true, energyCost: true },
     });
 
     for (const raid of pendingRaids) {
@@ -46,6 +48,7 @@ export class RaidsService {
       });
 
       if (expired) {
+        await this.notifications.markTargetReadForTarget(raid.id);
         await this.monitoring.logAndBroadcast('RAID_RESULT', null, {
           raidId: raid.id,
           result: 'CANCELLED',
@@ -91,6 +94,23 @@ export class RaidsService {
       raidId: raid.id, attackerTeamId, defenderTeamId: target.ownerTeamId, territoryId: target.id,
     });
 
+    await Promise.all([
+      this.notifications.notifyTeam(
+        attackerTeamId,
+        'RAID_ATTACK',
+        'Raid lancé par ton équipe',
+        `Votre équipe attaque le territoire ${target.name}. L'énergie du seuil a été dépensée.`,
+        raid.id,
+      ),
+      this.notifications.notifyTeam(
+        target.ownerTeamId,
+        'RAID_DEFENSE',
+        'Votre territoire est attaqué',
+        `Un raid vise le territoire ${target.name}. Rejoins ton équipe pour le défendre.`,
+        raid.id,
+      ),
+    ]);
+
     return raid;
   }
 
@@ -130,6 +150,7 @@ export class RaidsService {
     if (!user?.teamId || ![raid.attackerTeamId, raid.defenderTeamId].includes(user.teamId)) {
       throw new ForbiddenException("Tu ne fais pas partie d'une équipe impliquée dans ce raid");
     }
+    await this.notifications.markTargetRead(userId, raid.id);
 
     return {
       ...raid,
@@ -159,13 +180,15 @@ export class RaidsService {
       create: { raidId, userId, teamId: user.teamId },
       update: {},
     });
-
     if (raid.status === 'PENDING') {
       await this.prisma.raid.update({
         where: { id: raidId },
         data: { status: 'IN_PROGRESS', startedAt: new Date() },
       });
       await this.startRound(raidId, 1);
+      await this.notifications.markTargetReadForTarget(raidId);
+    } else {
+      await this.notifications.markTargetRead(userId, raidId);
     }
 
     return this.getRaidDetail(raidId, userId);
@@ -327,6 +350,8 @@ export class RaidsService {
       });
     }
 
+
+    await this.notifications.markTargetReadForTarget(raidId);
     await this.monitoring.logAndBroadcast('RAID_RESULT', null, {
       raidId, result, attackerScore, defenderScore,
     });
