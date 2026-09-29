@@ -17,6 +17,7 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 15;
 const BCRYPT_ROUNDS = 12;
 const RESET_TOKEN_EXPIRATION_MINUTES = 15;
+const REFRESH_TOKEN_RETRY_GRACE_MS = 30_000;
 
 @Injectable()
 export class AuthService {
@@ -155,6 +156,37 @@ export class AuthService {
     // Détection de rejeu : un token déjà révoqué qui est réutilisé = vol probable
     // → on invalide toute la lignée de tokens (tokenFamily) par précaution
     if (session.revokedAt) {
+      const retryWithinGrace =
+        Date.now() - session.revokedAt.getTime() <= REFRESH_TOKEN_RETRY_GRACE_MS &&
+        Boolean(session.replacedBy) &&
+        Boolean(session.userAgent) &&
+        session.userAgent === userAgent;
+
+      if (retryWithinGrace) {
+        const [replacement, user] = await Promise.all([
+          this.prisma.session.findFirst({
+            where: {
+              tokenFamily: session.tokenFamily,
+              revokedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.user.findUnique({ where: { id: session.userId } }),
+        ]);
+
+        if (replacement && user && user.status !== 'BLOCKED') {
+          const accessToken = this.jwt.sign(
+            { sub: user.id, email: user.email, role: user.role },
+            {
+              secret: this.config.get('JWT_ACCESS_SECRET'),
+              expiresIn: this.config.get('JWT_ACCESS_EXPIRATION'),
+            },
+          );
+          return { accessToken, refreshToken: replacement.refreshToken };
+        }
+      }
+
       await this.prisma.session.updateMany({
         where: { tokenFamily: session.tokenFamily, revokedAt: null },
         data: { revokedAt: new Date() },
