@@ -49,7 +49,7 @@ export class DuelsService {
     return {};
   }
 
-  // MEMORY doit rester visible (c'est le contenu à mémoriser) ; QUIZ doit cacher la réponse
+  // MEMORi  doit rester visible (c'est le contenu à mémoriser) ; QUIZ doit cacher la réponse
   private stripAnswer(content: any, type: string) {
     if (type === 'MEMORY') return content ?? {};
     const { correctAnswer, ...rest } = content ?? {};

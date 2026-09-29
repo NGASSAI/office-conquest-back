@@ -6,9 +6,9 @@ export const envValidationSchema = Joi.object({
   PORT: Joi.number().default(4000),
   DATABASE_URL: Joi.string().uri().required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
-  JWT_ACCESS_EXPIRATION: Joi.string().default('1h'),
+  JWT_ACCESS_EXPIRATION: Joi.string().default('2h'),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
-  JWT_REFRESH_EXPIRATION: Joi.string().default('30d'),
+  JWT_REFRESH_EXPIRATION: Joi.string().default('60d'),
   FRONTEND_URL: Joi.string().uri().required(),
   DEFAULT_ENERGY_THRESHOLD: Joi.number().default(1000),
 });
