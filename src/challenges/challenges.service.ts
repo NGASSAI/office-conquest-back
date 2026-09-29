@@ -166,7 +166,7 @@ export class ChallengesService {
     const score = challenge.type === 'REFLEX'
       ? this.computeReflexScore(challengeId, userId, dto.answerData.reflexToken)
       : this.computeScore(challenge, dto);
-    const energyEarned = user.teamId ? Math.round(score * (challenge.difficulty || 1)) : 0;
+    const energyEarned = user.teamId ? this.computeEnergyEarned(score, challenge.difficulty || 1, challenge.type) : 0;
 
     const attempt = await this.prisma.$transaction(async (tx) => {
       const createdAttempt = await tx.dailyChallengeAttempt.create({
@@ -175,7 +175,7 @@ export class ChallengesService {
           answerData: dto.answerData as any,
         },
       });
-      if (user.teamId && energyEarned > 0) {
+      if (user.teamId && energyEarned !== 0) {
         await tx.team.update({
           where: { id: user.teamId },
           data: { energy: { increment: energyEarned } },
@@ -245,6 +245,18 @@ export class ChallengesService {
     // Bonus de rapidité : plus vite = plus de points, borné entre 50 et 100
     const speedBonus = Math.max(0, 50 - dto.timeTakenSeconds);
     return Math.min(100, 50 + speedBonus);
+  }
+
+  private computeEnergyEarned(score: number, difficulty: number, type: string): number {
+    if (type === 'POLL') return 0; // Les sondages ne donnent pas d'énergie
+    
+    if (score === 0) {
+      // Pénalité pour mauvaise réponse
+      return -Math.round(10 * difficulty); // -10 à -20 points selon la difficulté
+    }
+    
+    // Récompense pour bonne réponse
+    return Math.round(score * difficulty);
   }
 
     async create(dto: CreateChallengeDto) {
