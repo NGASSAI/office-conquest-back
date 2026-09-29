@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { AuthService } from '../auth/auth.service';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { SoloGameSyncDto } from './dto/solo-game-sync.dto';
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 @Injectable()
@@ -168,6 +169,33 @@ const avgScore = attempts.length
       orderBy: { pseudo: 'asc' },
       take: 100,
     });
+  }
+
+  async syncSoloGame(userId: string, dto: SoloGameSyncDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+
+    // Stocker les stats du jeu solo dans un champ JSON de l'utilisateur
+    const currentSoloStats = (user.soloStats as any) || {
+      highScore: 0,
+      totalGames: 0,
+      totalDistance: 0,
+      lastPlayed: null,
+    };
+
+    const updatedStats = {
+      highScore: Math.max(currentSoloStats.highScore, dto.highScore || 0),
+      totalGames: Math.max(currentSoloStats.totalGames, dto.totalGames || 0),
+      totalDistance: Math.max(currentSoloStats.totalDistance, dto.totalDistance || 0),
+      lastPlayed: dto.lastPlayed || currentSoloStats.lastPlayed,
+    };
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { soloStats: updatedStats },
+    });
+
+    return { success: true, stats: updatedStats };
   }
 
   // Classement individuel basé sur l'énergie totale apportée aux défis quotidiens

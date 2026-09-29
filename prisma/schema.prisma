@@ -100,7 +100,7 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   secretPhraseHash    String?    // phrase secrète hachée (bcrypt), définie à l'inscription — sert à réinitialiser le mot de passe
- 
+  soloStats            Json?      // Statistiques du jeu solo hors-ligne (highScore, totalGames, totalDistance, lastPlayed)
 
   createdAt     DateTime   @default(now())
   lastLoginAt   DateTime?

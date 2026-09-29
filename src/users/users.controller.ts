@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -7,6 +7,7 @@ import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { SetSecretPhraseDto } from './dto/set-secret-phrase.dto';
 import { SetAvatarDto } from './dto/set-avatar.dto';
+import { SoloGameSyncDto } from './dto/solo-game-sync.dto';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -47,6 +48,11 @@ export class UsersController {
     @Patch('me/avatar')
   setAvatar(@CurrentUser() user: { userId: string }, @Body() dto: SetAvatarDto) {
     return this.usersService.setAvatar(user.userId, dto.emoji, dto.color);
+  }
+
+  @Post('me/solo-game-sync')
+  syncSoloGame(@CurrentUser() user: { userId: string }, @Body() dto: SoloGameSyncDto) {
+    return this.usersService.syncSoloGame(user.userId, dto);
   }
 
   // --- Routes admin ---
