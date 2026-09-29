@@ -7,6 +7,23 @@ const QUIZ_BANK = [
   { question: 'Combien de territoires compte la carte du bureau ?', options: ['3', '5', '8', '10'], correctAnswer: '5' },
   { question: "Quel est le seuil d'énergie par défaut pour déclencher un raid ?", options: ['500', '1000', '2000', '5000'], correctAnswer: '1000' },
   { question: 'Combien de manches compte un raid ?', options: ['1', '2', '3', '5'], correctAnswer: '3' },
+  { question: 'Quel type de défi permet de gagner de l\'énergie pour ton équipe ?', options: ['Quiz uniquement', 'Défis quotidiens', 'Raids uniquement', 'Duels'], correctAnswer: 'Défis quotidiens' },
+  { question: 'Combien de joueurs peuvent participer à un duel ?', options: ['1', '2', '4', '10'], correctAnswer: '2' },
+  { question: 'Que se passe-t-il quand une équipe atteint le seuil d\'énergie ?', options: ['Rien', 'Un raid est déclenché', 'L\'équipe gagne', 'Le jeu s\'arrête'], correctAnswer: 'Un raid est déclenché' },
+  { question: 'Quel est le but principal des raids ?', options: ['Gagner de l\'énergie', 'Capturer des territoires', 'Gagner des duels', 'Faire des quiz'], correctAnswer: 'Capturer des territoires' },
+  { question: 'Combien de types de défis quotidiens existent-ils ?', options: ['2', '3', '5', '6'], correctAnswer: '6' },
+  { question: 'Quel défi nécessite de mémoriser une séquence de couleurs ?', options: ['Quiz', 'Memory', 'Réflexe', 'Énigme'], correctAnswer: 'Memory' },
+  { question: 'Dans un duel, comment le gagnant est-il déterminé ?', options: ['Le plus rapide', 'Le meilleur score', 'Le plus de duels', 'Au hasard'], correctAnswer: 'Le meilleur score' },
+  { question: 'Que signifie le statut "BLOCKED" pour un utilisateur ?', options: ['Hors ligne', 'Compte bloqué', 'En pause', 'Nouveau joueur'], correctAnswer: 'Compte bloqué' },
+  { question: 'Combien de temps dure un access token par défaut ?', options: ['5 minutes', '15 minutes', '1 heure', '24 heures'], correctAnswer: '15 minutes' },
+  { question: 'Quel mécanisme permet de rester connecté après fermeture du navigateur ?', options: ['Access token', 'Refresh token', 'Cookie session', 'LocalStorage'], correctAnswer: 'Refresh token' },
+  { question: 'Combien d\'équipes peuvent participer à un raid ?', options: ['1', '2', '3', '4'], correctAnswer: '2' },
+  { question: 'Quel défi teste ta vitesse de réaction ?', options: ['Quiz', 'Memory', 'Réflexe', 'Sondage'], correctAnswer: 'Réflexe' },
+  { question: 'Comment changer d\'équipe ?', options: ['Impossible', 'Via un admin', 'Librement', 'Après 30 jours'], correctAnswer: 'Librement' },
+  { question: 'Quel est le rôle des notifications ?', options: ['Spam', 'Informer des événements', 'Décorer', 'Rien'], correctAnswer: 'Informer des événements' },
+  { question: 'Combien de tentatives de login avant verrouillage ?', options: ['3', '5', '10', 'Illimité'], correctAnswer: '5' },
+  { question: 'Qu\'est-ce qu\'un duel 1v1 ?', options: ['Duel en équipe', 'Duel solo contre un adversaire', 'Duel contre l\'IA', 'Tournoi'], correctAnswer: 'Duel solo contre un adversaire' },
+  { question: 'Quel défi implique de choisir parmi plusieurs options ?', options: ['Memory', 'Quiz', 'Réflexe', 'Spot'], correctAnswer: 'Quiz' },
 ];
 const MEMORY_SEQUENCE_LENGTH = 5;
 const MEMORY_COLORS = ['red', 'blue', 'green', 'yellow'] as const;
