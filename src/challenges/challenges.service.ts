@@ -1,4 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamsService } from '../teams/teams.service';
 import { RaidsService } from '../raids/raids.service';
@@ -12,7 +14,72 @@ export class ChallengesService {
     private readonly teamsService: TeamsService,
     private readonly raidsService: RaidsService,
     private readonly monitoring: MonitoringService,
+    private readonly config: ConfigService,
   ) {}
+
+  async startReflex(challengeId: string, userId: string) {
+    const challenge = await this.prisma.dailyChallenge.findUnique({ where: { id: challengeId } });
+    if (!challenge || challenge.type !== 'REFLEX') throw new NotFoundException('Défi réflexe introuvable');
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (challenge.date.getTime() !== today.getTime()) {
+      throw new BadRequestException("Ce défi n'est plus jouable aujourd'hui");
+    }
+
+    const existing = await this.prisma.dailyChallengeAttempt.findUnique({
+      where: { userId_challengeId: { userId, challengeId } },
+    });
+    if (existing) throw new ConflictException('Défi déjà joué aujourd\'hui');
+
+    const readyInMs = 1500 + Math.floor(Math.random() * 2500);
+    const payload = Buffer.from(JSON.stringify({
+      challengeId,
+      userId,
+      readyAt: Date.now() + readyInMs,
+      expiresAt: Date.now() + readyInMs + 15000,
+      nonce: randomUUID(),
+    })).toString('base64url');
+    const signature = this.signReflexPayload(payload);
+
+    return { token: `${payload}.${signature}`, readyInMs };
+  }
+
+  private signReflexPayload(payload: string) {
+    const secret = this.config.get<string>('JWT_ACCESS_SECRET');
+    if (!secret) throw new Error('JWT_ACCESS_SECRET manquant');
+    return createHmac('sha256', secret).update(payload).digest('base64url');
+  }
+
+  private computeReflexScore(challengeId: string, userId: string, token: unknown) {
+    if (typeof token !== 'string') throw new BadRequestException('Signal réflexe manquant; relance le défi');
+    const [payload, receivedSignature, extra] = token.split('.');
+    if (!payload || !receivedSignature || extra) throw new BadRequestException('Signal réflexe invalide');
+
+    const expectedSignature = Buffer.from(this.signReflexPayload(payload), 'base64url');
+    const actualSignature = Buffer.from(receivedSignature, 'base64url');
+    if (
+      expectedSignature.length !== actualSignature.length ||
+      !timingSafeEqual(expectedSignature, actualSignature)
+    ) throw new BadRequestException('Signal réflexe invalide');
+
+    let tokenData: { challengeId: string; userId: string; readyAt: number; expiresAt: number };
+    try {
+      tokenData = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    } catch {
+      throw new BadRequestException('Signal réflexe invalide');
+    }
+
+    if (tokenData.challengeId !== challengeId || tokenData.userId !== userId) {
+      throw new BadRequestException('Ce signal ne correspond pas à ce défi');
+    }
+
+    const now = Date.now();
+    if (now < tokenData.readyAt) throw new BadRequestException('Le signal n’est pas encore apparu');
+    if (now > tokenData.expiresAt) throw new BadRequestException('Le signal a expiré; relance le défi');
+
+    return Math.max(50, 100 - Math.round((now - tokenData.readyAt) / 20));
+  }
 
   async getWeeklyGoal() {
     const now = new Date();
@@ -96,7 +163,9 @@ export class ChallengesService {
     if (!user) throw new NotFoundException('Utilisateur introuvable');
 
     // Correction 100% côté serveur à partir du contenu stocké en base (jamais confiance au client)
-    const score = this.computeScore(challenge, dto);
+    const score = challenge.type === 'REFLEX'
+      ? this.computeReflexScore(challengeId, userId, dto.answerData.reflexToken)
+      : this.computeScore(challenge, dto);
     const energyEarned = user.teamId ? Math.round(score * (challenge.difficulty || 1)) : 0;
 
     const attempt = await this.prisma.$transaction(async (tx) => {
@@ -165,8 +234,7 @@ export class ChallengesService {
         correct = JSON.stringify(dto.answerData.sequence) === JSON.stringify(content.correctSequence);
         break;
       case 'REFLEX':
-        // Score basé sur le temps de réaction, borné pour éviter les valeurs absurdes envoyées par le client
-        correct = true;
+        correct = false;
         break;
       default:
         correct = false;

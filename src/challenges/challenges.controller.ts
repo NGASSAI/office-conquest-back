@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Post, Param } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ChallengesService } from './challenges.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
@@ -19,6 +20,12 @@ export class ChallengesController {
   @Get('weekly-goal')
   getWeeklyGoal() {
     return this.challengesService.getWeeklyGoal();
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post(':id/reflex/start')
+  startReflex(@Param('id') id: string, @CurrentUser() user: { userId: string }) {
+    return this.challengesService.startReflex(id, user.userId);
   }
 
   @Post(':id/attempt')
